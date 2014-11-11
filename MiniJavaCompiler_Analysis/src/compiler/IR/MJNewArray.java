@@ -16,6 +16,5 @@ public class MJNewArray extends MJNew {
 
 	public void setSize(MJExpression _size) {
 		this.size = _size;
-		
 	}
 }

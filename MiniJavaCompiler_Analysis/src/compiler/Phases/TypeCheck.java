@@ -13,7 +13,6 @@ import compiler.Exceptions.VariableAlreadyDeclared;
 import compiler.Exceptions.VariableNotFound;
 import compiler.Exceptions.VisitorException;
 
-import java.io.PrintStream;
 import java.util.LinkedList;
 
 
@@ -306,7 +305,9 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 
 	@Override
 	public MJType visitStatement(MJIf e) throws VisitorException {
-		if(!e.getCondition().getType().isBoolean())
+		MJType type = visitExpression(e.getCondition());
+		
+		if(!type.isBoolean())
 			throw new TypeCheckerException("If-expression is not of type boolean.");
 		
 		visitStatement(e.getIfBlock());
@@ -316,7 +317,9 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 
 	@Override
 	public MJType visitStatement(MJIfElse e) throws VisitorException {
-		if(!e.getCondition().getType().isBoolean())
+		MJType type = visitExpression(e.getCondition());
+		
+		if(!type.isBoolean())
 			throw new TypeCheckerException("If-expression is not of type boolean.");
 		
 		visitStatement(e.getIfBlock());
@@ -327,7 +330,9 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 
 	@Override
 	public MJType visitStatement(MJWhile e) throws VisitorException {
-		if(!e.getCondition().getType().isBoolean())
+		MJType type = visitExpression(e.getCondition());
+		
+		if(!type.isBoolean())
 			throw new TypeCheckerException("While-expression is not of type boolean.");
 		
 		visitStatement(e.getBlock());
@@ -425,11 +430,11 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 			throw new TypeCheckerException("Arguments to < must be of same type.");
 		}
 		
-		if(!ltype.isBoolean()) {
-			throw new TypeCheckerException("Arguments to < must be of type boolean.");
+		if(!ltype.isInt()) {
+			throw new TypeCheckerException("Arguments to < must be of type integer.");
 		}
 		
-		e.setType(MJType.getIntType());
+		e.setType(MJType.getBooleanType());
 		
 		return e.getType();
 	}
@@ -443,8 +448,8 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 			throw new TypeCheckerException("Arguments to + must be of same type");
 		}
 		
-		if(!ltype.isInt() || !(ltype.isClass() && ltype.getName().equals("String"))) {
-			throw new TypeCheckerException("Arguments to + must be of type integer");
+		if(!ltype.isInt() && !(ltype.isClass() && ltype.getName().equals("String"))) {
+			throw new TypeCheckerException("Arguments to + must be of type integer or String.");
 		}
 		
 		if(ltype.isInt())
@@ -526,20 +531,28 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 
 	@Override
 	public MJType visitExpression(MJNew e) throws VisitorException {
-		MJType id = visitType(e.getType()); // TODO Check if legit
+		MJClass classDecl;
+		MJType type;
 		
-		if(!(id.isClass() && id.getClass().getName().equals(e.getClassName())))
-			throw new TypeCheckerException("New object must be of type class.");
-
-		e.setType(MJType.getClassType(id.getName()));
+		try {
+			classDecl = IR.classes.lookup(e.getClassName());
+		} catch(ClassNotFound exc) {
+			throw new TypeCheckerException("Class "+ e.getClassName() +" does not exist.");
+		}
+		
+		type = MJType.getClassType(classDecl.getName());
+		
+		e.setType(type);
 		
 		return e.getType();
 	}
 
 	@Override
 	public MJType visitExpression(MJNewArray e) throws VisitorException {
-		if(!e.getType().isInt()) // TODO Check if legit
-			throw new TypeCheckerException("New-expression must be of type integer.");
+		if(!e.getType().isArray())
+			throw new TypeCheckerException("New array must be of type array.");
+		
+		visitExpression(e.getSize());
 		
 		e.setType(MJType.getArrayType(MJType.getIntType()));
 		
@@ -548,18 +561,15 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 
 	@Override
 	public MJType visitExpression(MJMethodCallExpr e) throws VisitorException {
-		MJType methodType = visitExpression(e.getObject());
+		MJType methodType;
 		LinkedList<MJExpression> vars = e.getArguments();
 		String methodName = e.getMethodName();
 		MJClass classDecl;
 		MJMethod methodDecl;
 		
-		if (!methodType.isClass()) {
-			if(!methodName.equals("this"))
-				throw new TypeCheckerException("Type of an object in a methodcall must be a class type.");
-		}
-		
-		if(!methodName.equals("this")) {
+		if(!e.getObject().equals(null)) {
+			methodType = visitExpression(e.getObject());
+			
 			try {
 				classDecl = IR.classes.lookup(methodType.getName());
 			} catch (ClassNotFound exc) {
@@ -570,6 +580,10 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 			classDecl = IR.currentClass;
 		}
 		
+		for(int i = 0; i < e.getArguments().size(); i++) {
+			visitExpression(e.getArguments().get(i));
+		}
+		
 		try {
 			methodDecl = IR.classes.lookupMethod(classDecl, methodName, vars);
 		} catch(ClassErrorMethod exc) {
@@ -578,13 +592,8 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 			throw new TypeCheckerException("Class "+ classDecl.getName() + " has no method "+ methodName + ".");
 		}
 		
-		// TODO Complete by assigning types
-		for(int i = 0; i < methodDecl.getParameters().size(); i++) {
-			if(!(methodDecl.getParameters().get(i).getType().equals(vars.get(i).getType())))
-				throw new TypeCheckerException("Argument " + vars.get(i).getType() + " is of wrong type. Has to be " + methodDecl.getParameters().get(i).getType() + ".");
-		}
-		
-		// e.setType();
+		e.setTarget(methodDecl);
+		e.setType(methodDecl.getReturnType());
 		
 		return e.getType();
 	}
@@ -708,6 +717,4 @@ public class TypeCheck extends IRElementVisitor<MJType> {
 		e.setType(MJType.getVoidType());
 		return e.getType();
 	}
-
-
 }
